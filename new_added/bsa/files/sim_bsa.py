@@ -124,9 +124,11 @@ for i in range(0,86300, 100):
             solar_output, wind_output, coal_output, gas_output = new_solution
             frequency_deviation = grid_frequency(solar_output, wind_output, coal_output, gas_output, data)
             
-            if np.all(np.abs(frequency_deviation) < best_deviation):  # Use np.all() for array comparison
+            deviation_magnitude = np.std(np.abs(frequency_deviation))  # Calculate scalar deviation
+        
+            if deviation_magnitude < best_deviation:
                 best_solution = new_solution
-                best_deviation = np.abs(frequency_deviation)
+                best_deviation = deviation_magnitude
         
         return np.trunc(best_solution * 100) / 100  # Return the best solution found
 
@@ -172,9 +174,14 @@ for i in range(0,86300, 100):
         D_solar, D_wind, D_coal, D_gas = 0.02, 0.03, 0.3, 0.2  # Damping factors
 
         frequency_obtained = []
+        frequency = 50  # Initialize frequency at 50 Hz
 
         for t in range(num_steps):
+            # Print to debug and check the structure of `solution`
+
+            # If `solution[t]` is an array, unpack it into individual generation values
             solar_output, wind_output, coal_output, gas_output = solution
+
             total_generation = solar_output + wind_output + coal_output + gas_output
             delta_P = total_generation - load_demand[t]
 
@@ -185,8 +192,9 @@ for i in range(0,86300, 100):
                     coal_output * D_coal + gas_output * D_gas) / (total_generation + 1e-6)
 
             frequency_deviation = (delta_P * 0.00008) / (H_total + D_total + 1e-6)
-            obtained_hz = 50 + frequency_deviation
-            frequency_obtained.append(obtained_hz)
+            frequency += frequency_deviation  # Add deviation to previous frequency value
+            frequency_obtained.append(frequency)  # Store the updated frequency
+
 
         return np.array(frequency_obtained) 
 

@@ -36,7 +36,7 @@ sc=pd.read_csv("sceduler.csv")
 import csv
 import os
 # Path to your CSV file
-csv_file = 'new/sa/sa_new.csv'
+csv_file = 'new/ga/ga_new.csv'
 
 # Define your column names
 fieldnames = ['Index', 'solar_needed', 'solar_availability', 'wind_needed', 'wind_availability', 'coal_needed', 'coal_availability', 'gas_needed', 'gas_availability', 'sortfall', 'BMS_status','BMS_action','total_cost', 'frequency_mean','frequency_std_dev', 'frequency_max_deviation', 'frequency_min_deviation', 'within_0_01', 'within_0_02', 'within_0_05']
@@ -113,26 +113,39 @@ for i in range(0,86300, 100):
         frequency_deviation = (delta_P * 0.00008) / (H_total + D_total + 1e-6)  # Prevent div by zero
         return frequency_deviation
 
-    def simulated_annealing(renewable_capacity, conventional_capacity, data, iterations):
-        best_solution = np.random.rand(4) * [renewable_capacity['solar'], renewable_capacity['wind'], conventional_capacity['coal'], conventional_capacity['gas']]
-        best_deviation = np.inf
-        temperature = 100
-        cooling_rate = 0.95
+    def genetic_algorithm(renewable_capacity, conventional_capacity, data, iterations):
+        population_size = 10
+        population = np.random.rand(population_size, 4) * [
+            renewable_capacity['solar'],
+            renewable_capacity['wind'],
+            conventional_capacity['coal'],
+            conventional_capacity['gas']
+        ]
         
+        best_solution = population[0]
+        best_deviation = np.inf  # Start with a very high deviation
+
         for _ in range(iterations):
-            new_solution = best_solution + (np.random.rand(4) - 0.5) * best_solution * 0.1
-            new_solution = np.clip(new_solution, 0, [renewable_capacity['solar'], renewable_capacity['wind'], conventional_capacity['coal'], conventional_capacity['gas']])
-            
-            frequency_deviation = grid_frequency(*new_solution, data)
-            deviation_magnitude = np.mean(np.abs(frequency_deviation))  # Ensure scalar comparison
-            
-            if deviation_magnitude < best_deviation or np.exp(-(deviation_magnitude - best_deviation) / temperature) > np.random.rand():
-                best_solution = new_solution
-                best_deviation = deviation_magnitude
-            
-            temperature *= cooling_rate
-        
-        return  np.trunc(best_solution * 100) / 100
+            for i in range(population_size):
+                solar_output, wind_output, coal_output, gas_output = population[i]
+                frequency_deviation = grid_frequency(solar_output, wind_output, coal_output, gas_output, data)
+
+                deviation_magnitude = np.std(np.abs(frequency_deviation)) # Use standard deviation as fitness
+
+                if deviation_magnitude < best_deviation:
+                    best_solution = population[i]
+                    best_deviation = deviation_magnitude
+
+            # Genetic variation (mutation step)
+            new_population = population + (np.random.rand(population_size, 4) - 0.5) * 0.1
+            population = np.clip(
+                new_population,
+                0,
+                [renewable_capacity['solar'], renewable_capacity['wind'],
+                conventional_capacity['coal'], conventional_capacity['gas']]
+            )
+
+        return np.trunc(best_solution * 100) / 100
 
 
     def calculate_total_cost(solar_output, wind_output, coal_output, gas_output):
@@ -177,9 +190,14 @@ for i in range(0,86300, 100):
         D_solar, D_wind, D_coal, D_gas = 0.02, 0.03, 0.3, 0.2  # Damping factors
 
         frequency_obtained = []
+        frequency = 50  # Initialize frequency at 50 Hz
 
         for t in range(num_steps):
+            # Print to debug and check the structure of `solution`
+
+            # If `solution[t]` is an array, unpack it into individual generation values
             solar_output, wind_output, coal_output, gas_output = solution
+
             total_generation = solar_output + wind_output + coal_output + gas_output
             delta_P = total_generation - load_demand[t]
 
@@ -190,8 +208,9 @@ for i in range(0,86300, 100):
                     coal_output * D_coal + gas_output * D_gas) / (total_generation + 1e-6)
 
             frequency_deviation = (delta_P * 0.00008) / (H_total + D_total + 1e-6)
-            obtained_hz = 50 + frequency_deviation
-            frequency_obtained.append(obtained_hz)
+            frequency += frequency_deviation  # Add deviation to previous frequency value
+            frequency_obtained.append(frequency)  # Store the updated frequency
+
 
         return np.array(frequency_obtained) 
 
@@ -229,9 +248,9 @@ for i in range(0,86300, 100):
     coal_out, gas_out = conventional_generation(conventional_capacity, i)
     renewable_capacity_av = {'solar':solar_out, 'wind': wind_out}  # MW 
     conventional_capacity_av = {'coal': coal_out, 'gas': gas_out}  # MW
-    best_solution = simulated_annealing(renewable_capacity_av, conventional_capacity_av, data, 1000)
+    best_solution = genetic_algorithm(renewable_capacity_av, conventional_capacity_av, data, 1000)
 
-    solar_output_pso, wind_output_pso, coal_output_pso, gas_output_pso = best_solution
+    solar_output_ga, wind_output_ga, coal_output_ga, gas_output_ga = best_solution
 
     # Available power from sources (in MW)
     availability = {
@@ -245,10 +264,10 @@ for i in range(0,86300, 100):
     step += 1
     # Predicted optimal power usage from ML model (in MW)
     optimal_allocation = {
-        'SOLAR': solar_output_pso,
-        'WIND': wind_output_pso,
-        'COAL': coal_output_pso,  # Using only 8074.4 MW even though 12000 MW is available
-        'GAS': gas_output_pso   # Using only 9920.94 MW even though 10000 MW is available
+        'SOLAR': solar_output_ga,
+        'WIND': wind_output_ga,
+        'COAL': coal_output_ga,  # Using only 8074.4 MW even though 12000 MW is available
+        'GAS': gas_output_ga   # Using only 9920.94 MW even though 10000 MW is available
     }
 
     bms_action = {
@@ -371,4 +390,4 @@ for i in range(0,86300, 100):
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writerow(row) 
 all_frequencies = np.array(all_frequencies)
-np.save("new/sa/freq/sa_frequency.npy", all_frequencies)    
+np.save("new/ga/freq/ga_frequency.npy", all_frequencies)    
